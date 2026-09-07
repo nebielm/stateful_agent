@@ -37,10 +37,15 @@ DATA_SELECTION_PROMPT = """
     ---------------------
     - Extract ONLY explicitly stated facts
     - DO NOT infer or guess
-    - Write-once immutable keys may be stored only when the user explicitly states their own information and the value is currently missing
-    - Do NOT overwrite write-once immutable keys
+    - Emit explicitly stated user facts as CANDIDATES, including corrections to immutable fields
+    - You do not write memory or decide whether a value is already stored
+    - Application code stores missing immutable values and asks for confirmation on conflicts
     - Do NOT extract another person's birthdate or identity details into the user's memory
-    - If the user says a write-once immutable key is wrong, do NOT emit an automatic replacement
+    - If the user supplies their corrected birthdate, emit that proposed birthdate for the confirmation workflow
+    - A birthdate must be a real calendar date in YYYY-MM-DD format
+    - Do not output user_id, owner IDs, or pending confirmations; the application controls ownership
+    - Persist a user's goal as dynamic.current_goal, never as goal or target_weight
+    - goal and target_weight are session-only working-memory keys, outside the structured schema
     - NEVER swap key and value
     - DO NOT invent schema keys
 
@@ -59,6 +64,13 @@ DATA_SELECTION_PROMPT = """
     ---------------------
     EXAMPLES
     ---------------------
+
+    Input: "Actually, my birthdate is 1996-04-12."
+    Output:
+    {{
+      "structured": [{{"key":"birthdate","value":"1996-04-12","category":"profile"}}],
+      "unstructured": []
+    }}
 
     Input: "my name is Alice"
     Output:

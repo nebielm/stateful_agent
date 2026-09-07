@@ -15,7 +15,7 @@ def test_age_question_retrieves_birthdate_without_unrelated_food_memory(tmp_path
                 "user-1": {
                     "profile": {"birthdate": "1995-04-12", "city": "Berlin"},
                     "preferences": {"favorite_food": "pasta"},
-                    "dynamic": {"goal": "lose weight"},
+                    "dynamic": {"current_goal": "lose weight"},
                 }
             }
         )
@@ -67,7 +67,7 @@ def test_food_question_retrieves_preferences_goal_and_dislikes_without_birthdate
                 "user-1": {
                     "profile": {"birthdate": "1995-04-12"},
                     "preferences": {"favorite_food": "pasta"},
-                    "dynamic": {"goal": "lose weight"},
+                    "dynamic": {"current_goal": "lose weight"},
                 }
             }
         )
@@ -79,7 +79,7 @@ def test_food_question_retrieves_preferences_goal_and_dislikes_without_birthdate
         lambda text: {
             "structured_to_retrieve": [
                 {"category": "preferences", "key": "favorite_food"},
-                {"category": "dynamic", "key": "goal"},
+                {"category": "dynamic", "key": "current_goal"},
             ],
             "unstructured_to_retrieve": [{"type": "dislike"}],
         },
@@ -116,7 +116,7 @@ def test_food_question_retrieves_preferences_goal_and_dislikes_without_birthdate
             "score": 1.0,
         },
         {
-            "key": "goal",
+            "key": "current_goal",
             "value": "lose weight",
             "category": "dynamic",
             "score": 1.0,
@@ -128,13 +128,13 @@ def test_food_question_retrieves_preferences_goal_and_dislikes_without_birthdate
     assert all(item["key"] != "birthdate" for item in result["context"]["structured"])
 
 
-def test_fitness_question_retrieves_weight_target_weight_and_goal(tmp_path, monkeypatch):
+def test_fitness_question_retrieves_persisted_weight_and_current_goal(tmp_path, monkeypatch):
     data_file = tmp_path / "user_info.json"
     data_file.write_text(
         json.dumps(
             {
                 "user-1": {
-                    "dynamic": {"weight": 92, "target_weight": 82, "goal": "lose weight"},
+                    "dynamic": {"weight": 92, "current_goal": "lose weight"},
                     "profile": {"city": "Berlin"},
                 }
             }
@@ -147,8 +147,7 @@ def test_fitness_question_retrieves_weight_target_weight_and_goal(tmp_path, monk
         lambda text: {
             "structured_to_retrieve": [
                 {"category": "dynamic", "key": "weight"},
-                {"category": "dynamic", "key": "target_weight"},
-                {"category": "dynamic", "key": "goal"},
+                {"category": "dynamic", "key": "current_goal"},
             ],
             "unstructured_to_retrieve": [],
         },
@@ -179,13 +178,7 @@ def test_fitness_question_retrieves_weight_target_weight_and_goal(tmp_path, monk
             "score": 1.0,
         },
         {
-            "key": "target_weight",
-            "value": 82,
-            "category": "dynamic",
-            "score": 1.0,
-        },
-        {
-            "key": "goal",
+            "key": "current_goal",
             "value": "lose weight",
             "category": "dynamic",
             "score": 1.0,
@@ -202,7 +195,7 @@ def test_specific_retrieval_plan_prevents_dumping_all_memory_into_context(tmp_pa
                 "user-1": {
                     "profile": {"birthdate": "1995-04-12", "city": "Berlin", "job": "Engineer"},
                     "preferences": {"favorite_food": "pasta", "diet": "vegetarian"},
-                    "dynamic": {"weight": 92, "goal": "lose weight"},
+                    "dynamic": {"weight": 92, "current_goal": "lose weight"},
                 }
             }
         )

@@ -158,25 +158,10 @@ def test_another_person_birthdate_does_not_overwrite_user_birthdate(tmp_path, mo
 
     stored = json.loads(data_file.read_text())
     assert stored == {"user-1": {"profile": {"birthdate": "1995-04-12"}}}
-    assert state["memory_updates"]["structured_results"] == [
-        {
-            "decision": "needs_confirmation",
-            "field": "birthdate",
-            "category": "profile",
-            "existing_value": "1995-04-12",
-            "proposed_value": "2001-02-03",
-            "reason": "immutable field conflict",
-        }
-    ]
-    assert state["memory_updates"]["pending_confirmation"] == {
-        "field": "birthdate",
-        "category": "profile",
-        "existing_value": "1995-04-12",
-        "proposed_value": "2001-02-03",
-        "reason": "immutable field conflict",
-    }
-    assert "Do you want me to replace it with 2001-02-03?" in state["messages"][-1].content
-    assert json.loads(log_file.read_text().strip())["proposed_value"] == "2001-02-03"
+    assert state["memory_updates"]["structured_results"][0]["decision"] == "ignored"
+    assert "pending_confirmation" not in state["memory_updates"]
+    assert "replace it" not in state["messages"][-1].content
+    assert json.loads(log_file.read_text().strip())["source"] == "memory_item_validation"
 
 
 def test_conflict_generates_confirmation_message_with_existing_and_proposed_values(tmp_path, monkeypatch):
@@ -210,6 +195,7 @@ def test_conflict_generates_confirmation_message_with_existing_and_proposed_valu
         "Do you want me to replace it with 1996-04-12?"
     )
     assert state["memory_updates"]["pending_confirmation"] == {
+        "user_id": "user-1",
         "field": "birthdate",
         "category": "profile",
         "existing_value": "1995-04-12",
@@ -260,6 +246,7 @@ def test_confirmed_pending_correction_is_applied_on_next_turn(tmp_path, monkeypa
         "messages": [HumanMessage(content="yes")],
         "memory_updates": {
             "pending_confirmation": {
+                "user_id": "user-1",
                 "field": "birthdate",
                 "category": "profile",
                 "existing_value": "1995-04-12",
@@ -291,6 +278,7 @@ def test_rejected_pending_correction_is_discarded_on_next_turn(tmp_path, monkeyp
         "messages": [HumanMessage(content="no")],
         "memory_updates": {
             "pending_confirmation": {
+                "user_id": "user-1",
                 "field": "birthdate",
                 "category": "profile",
                 "existing_value": "1995-04-12",
@@ -320,6 +308,7 @@ def test_unclear_pending_correction_is_kept_on_next_turn(tmp_path, monkeypatch):
         "messages": [HumanMessage(content="maybe")],
         "memory_updates": {
             "pending_confirmation": {
+                "user_id": "user-1",
                 "field": "birthdate",
                 "category": "profile",
                 "existing_value": "1995-04-12",
@@ -334,6 +323,7 @@ def test_unclear_pending_correction_is_kept_on_next_turn(tmp_path, monkeypatch):
 
     assert result["memory_updates"]["confirmation_resolution"]["status"] == "unclear"
     assert result["memory_updates"]["pending_confirmation"] == {
+        "user_id": "user-1",
         "field": "birthdate",
         "category": "profile",
         "existing_value": "1995-04-12",
@@ -437,7 +427,7 @@ def test_conversation_remembers_birthdate_after_unrelated_turns(tmp_path, monkey
     )
 
     retrieved_state = graph.context_retrieval_node(age_state, retrieval_runtime)
-    derived_age = tools.get_current_age.invoke({"user_id": "user-1"})
+    derived_age = tools.get_current_age.func(SimpleNamespace(state={"user_id": "user-1"}))
 
     assert retrieved_state["context"]["structured"][0]["value"] == "1995-04-12"
     assert derived_age == 31

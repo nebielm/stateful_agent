@@ -13,9 +13,9 @@ from app.services.memory_confirmation import (
 
 
 def test_build_pending_memory_confirmation_returns_none_for_non_conflicts():
-    assert build_pending_memory_confirmation({"decision": "stored"}) is None
-    assert build_pending_memory_confirmation({"decision": "no_change"}) is None
-    assert build_pending_memory_confirmation({"decision": "ignored"}) is None
+    assert build_pending_memory_confirmation({"decision": "stored"}, user_id="user-1") is None
+    assert build_pending_memory_confirmation({"decision": "no_change"}, user_id="user-1") is None
+    assert build_pending_memory_confirmation({"decision": "ignored"}, user_id="user-1") is None
 
 
 def test_build_pending_memory_confirmation_returns_pending_structure_for_conflict():
@@ -27,10 +27,12 @@ def test_build_pending_memory_confirmation_returns_pending_structure_for_conflic
             "existing_value": "1995-04-12",
             "proposed_value": "1996-04-12",
             "reason": "immutable field conflict",
-        }
+        },
+        user_id="user-1",
     )
 
     assert pending == {
+        "user_id": "user-1",
         "field": "birthdate",
         "category": "profile",
         "existing_value": "1995-04-12",
@@ -105,6 +107,7 @@ def test_confirmed_pending_correction_updates_immutable_value(tmp_path, monkeypa
         user_id="user-1",
         reply_text="yes",
         pending_confirmation={
+            "user_id": "user-1",
             "field": "birthdate",
             "category": "profile",
             "existing_value": "1995-04-12",
@@ -131,6 +134,7 @@ def test_rejected_pending_correction_preserves_old_value(tmp_path, monkeypatch):
         user_id="user-1",
         reply_text="no",
         pending_confirmation={
+            "user_id": "user-1",
             "field": "birthdate",
             "category": "profile",
             "existing_value": "1995-04-12",
@@ -151,6 +155,7 @@ def test_unclear_reply_preserves_pending_confirmation():
         user_id="user-1",
         reply_text="maybe",
         pending_confirmation={
+            "user_id": "user-1",
             "field": "birthdate",
             "category": "profile",
             "existing_value": "1995-04-12",
@@ -174,6 +179,7 @@ def test_confirmation_resolver_only_updates_exact_pending_field_category(tmp_pat
         user_id="user-1",
         reply_text="yes",
         pending_confirmation={
+            "user_id": "user-1",
             "field": "birthdate",
             "category": "preferences",
             "existing_value": "1995-04-12",
@@ -182,8 +188,8 @@ def test_confirmation_resolver_only_updates_exact_pending_field_category(tmp_pat
         },
     )
 
-    assert resolution["status"] == "failed"
-    assert resolution["message"] == "I couldn't apply that update safely, so I kept your birthdate as 1995-04-12."
+    assert resolution["status"] == "invalid"
+    assert resolution["message"] == "That pending correction is invalid. No memory was changed."
     stored = json.loads(data_file.read_text())
     assert stored == {"user-1": {"profile": {"birthdate": "1995-04-12"}}}
     assert resolution["result"]["decision"] == "ignored"

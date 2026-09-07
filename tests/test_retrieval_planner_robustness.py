@@ -196,7 +196,7 @@ def test_over_broad_retrieval_plan_ignores_invalid_fields_and_keeps_valid_ones(t
         json.dumps(
             {
                 "user-1": {
-                    "dynamic": {"weight": 92, "goal": "lose weight"},
+                    "dynamic": {"weight": 92, "current_goal": "lose weight"},
                     "profile": {"birthdate": "1995-04-12"},
                 }
             }

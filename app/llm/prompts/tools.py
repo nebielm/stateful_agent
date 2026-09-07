@@ -1,7 +1,7 @@
 TOOL_SELECTION_PROMPT = """
     You are a tool routing system.
 
-    You have access to ALL available tools (about 50 tools).
+    You have access to the available tools listed below.
 
     Your task:
     Select the MINIMAL subset of tools required.

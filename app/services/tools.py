@@ -5,11 +5,14 @@ from typing import List
 
 import requests
 from langchain_core.tools import tool
+from langgraph.prebuilt import ToolRuntime
 
+from app.core.identity import require_user_id
 from app.core.logging import logger
 from app.db.vectorstores import get_core_vectorstore
 from app.llm.client import call_llm_json, get_llm
 from app.llm.prompts.tools import TOOL_SELECTION_PROMPT
+from app.models.memory import structured_value_error
 from app.repositories.user_memory import load_user_data, lookup_user_value
 from app.services.memory import enrich_knowledge
 from app.utils.dates import calculate_age_from_birthdate
@@ -20,13 +23,13 @@ from app.utils.math_tools import safe_eval
 @tool
 def calculator(expression: str) -> float:
     """Evaluate a mathematical expression like '40 + 12 * 2' safely."""
-    logger.info(f"[TOOL]: Calculator: Evaluating expression: {expression}")
+    logger.info("[TOOL]: Calculator: Evaluating expression")
     if len(expression) > 50:
-        logger.info("[TOOL]: Calculator: IGNORD: Expression must be under 50 characters.")
+        logger.info("[TOOL]: Calculator: IGNORED: Expression must be at most 50 characters.")
         return "Expression too long"
     try:
         result = safe_eval(expression)
-        logger.info(f"[TOOL]: ✅ Calculator: Successfully evaluated expression: {expression} result: {str(result)}")
+        logger.info("[TOOL]: Calculator: Successfully evaluated expression")
         return result
     except Exception as e:
         logger.error(f"[TOOL]: ❌ Calculator: Failed to evaluate expression: {str(e)}")
@@ -43,8 +46,9 @@ def get_current_time() -> str:
 
 
 @tool
-def get_current_age(user_id: str) -> float:
-    """Returns the current age"""
+def get_current_age(runtime: ToolRuntime[dict]) -> int | None:
+    """Calculate the current user's age from their stored birthdate."""
+    user_id = require_user_id(runtime.state.get("user_id"))
     logger.info("[TOOL] CURRENT USER AGE: Getting current age.")
     data = load_user_data()
     if not data:
@@ -52,19 +56,17 @@ def get_current_age(user_id: str) -> float:
         return
     try:
         user_data = data.get(user_id, {})
-        stored_age = lookup_user_value(user_data, "age")
-        if stored_age is not None:
-            logger.info(f"[TOOL] CURRENT USER AGE: age: {stored_age}")
-            return float(stored_age)
-
         birthdate_value = lookup_user_value(user_data, "birthdate") or lookup_user_value(user_data, "birthday")
         if birthdate_value is None:
             logger.info("[TOOL] CURRENT USER AGE: No birthdate data found.")
             return
 
-        logger.info(f"[TOOL] CURRENT USER AGE: birthday: {birthdate_value}")
+        if structured_value_error("birthdate", birthdate_value):
+            logger.warning("[TOOL] CURRENT USER AGE: Invalid stored birthdate")
+            return
+
         age = calculate_age_from_birthdate(birthdate_value)
-        logger.info(f"[TOOL] ✅ CURRENT USER AGE: {str(age)}")
+        logger.info("[TOOL] CURRENT USER AGE: Calculated age")
         return age
     except Exception as e:
         logger.info(f"[TOOL] ❌ CURRENT USER AGE: Error while getting user info {e}.")
@@ -72,9 +74,10 @@ def get_current_age(user_id: str) -> float:
 
 
 @tool
-def get_user_info(user_id: str, key: str) -> str:
-    """Retrieve stored information about a user"""
-    logger.info(f"[TOOL] USER INFO: Getting user info key: {key}.")
+def get_user_info(key: str, runtime: ToolRuntime[dict]) -> str:
+    """Retrieve a stored fact for the current user."""
+    user_id = require_user_id(runtime.state.get("user_id"))
+    logger.info("[TOOL] USER INFO: Getting user info")
     data = load_user_data()
     if not data:
         logger.info("[TOOL] USER INFO: No file data/user_info.json found.")
@@ -82,7 +85,9 @@ def get_user_info(user_id: str, key: str) -> str:
     try:
         user_data = data.get(user_id, {})
         value = lookup_user_value(user_data, key)
-        logger.info(f"[TOOL] ✅ USER INFO: {key}: {value}")
+        if key in {"birthdate", "birthday"} and structured_value_error("birthdate", value):
+            return f"{key}: No valid data found"
+        logger.info("[TOOL] USER INFO: Retrieved value")
         if value is None:
             return f"{key}: No data found"
         return f"{key}: {value}"
@@ -107,7 +112,7 @@ def semantic_scholar_search(query: str, store: bool = False) -> List[str]:
     - conversational language
     - unnecessary words
     """
-    logger.info(f"[TOOL] SEMANTIC SCHOLAR: Called with query: {query}")
+    logger.info("[TOOL] SEMANTIC SCHOLAR: Search requested")
     url = "https://api.semanticscholar.org/graph/v1/paper/search"
 
     params = {
@@ -174,7 +179,7 @@ bound_models_cache = {}
 
 
 def select_tools_via_llm(query: str):
-    logger.info(f"[TOOL SELECTOR]: Called with query: {query}")
+    logger.info("[TOOL SELECTOR]: Selecting tools")
     try:
         prompt = format_prompt(
             TOOL_SELECTION_PROMPT,
@@ -185,14 +190,14 @@ def select_tools_via_llm(query: str):
         raw_output = call_llm_json(prompt, default=[])
 
         if not isinstance(raw_output, list):
-            logger.info(f"[TOOL SELECTOR]: Output not a list: {str(raw_output)} --> returning empty list")
+            logger.info("[TOOL SELECTOR]: Output not a list; returning empty list")
             return []
 
         valid_names = {tool_info["name"] for tool_info in tool_metadata}
 
         cleaned = list({name for name in raw_output if name in valid_names})
         if not cleaned:
-            logger.info(f"[TOOL SELECTOR]: Not cleaned: {str(cleaned)} --> returning empty list")
+            logger.info("[TOOL SELECTOR]: No valid tool names; returning empty list")
             return []
 
         tool_map = {current_tool.name: current_tool for current_tool in tools}

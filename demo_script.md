@@ -1,12 +1,19 @@
 # Demo Script
 
-This script is designed for a 3-5 minute recruiter demo in the CLI.
+Use this short CLI walkthrough after completing [README setup](README.md#setup).
+Use fictitious facts and a fresh local profile ID; a reused profile may already
+have a different immutable birthdate. Keep one CLI session open for the correction
+steps. Live extraction and recommendations vary, and provider calls may incur costs.
 
 Start the app:
 
 ```bash
-./.venv/bin/python main.py
+STATEFUL_AGENT_USER_ID=showcase-demo-1 ./.venv/bin/python main.py
 ```
+
+Choose another demo ID if this one already has data. Warm up model downloads before
+presenting; the walkthrough is not a guaranteed timed or verbatim live transcript.
+For an offline alternative: `./.venv/bin/python -m pytest -q tests/test_showcase_graph.py`.
 
 ## Goal
 
@@ -41,7 +48,7 @@ You: I dislike pork, I prefer simple meals, and I am trying to lose weight.
 What to say:
 
 - “Now we have both structured and unstructured memory in play.”
-- “The goal is a stable preference signal for later recommendations.”
+- “A persistent goal uses `dynamic.current_goal`; `goal` and `target_weight` are session-only keys.”
 
 ### 3. Ask for a recommendation that should use memory
 
@@ -63,7 +70,8 @@ You: How old am I?
 
 What to say:
 
-- “This is the important memory test: the agent has to retrieve the stored birthdate and derive age from it.”
+- “The age tool calculates from the saved birthdate using today's date; its selection is model-driven.”
+- “This live turn still has conversation history. The offline compiled-graph test clears history before retrieval to isolate persisted memory.”
 
 ### 5. Trigger an immutable conflict
 
@@ -71,7 +79,7 @@ What to say:
 You: Actually, my birthdate is 1996-04-12.
 ```
 
-Expected behavior:
+Once the extracted conflict reaches storage, application code appends this question:
 
 ```text
 AI: I currently have 1995-04-12 saved as your birthdate. Do you want me to replace it with 1996-04-12?
@@ -83,6 +91,9 @@ What to say:
 - “It preserves the old value and asks for confirmation.”
 
 ## Branch A: Reject the change
+
+Optionally answer `maybe` first to show the deterministic request for a clear yes
+or no. Then reject:
 
 ```text
 You: no
@@ -138,6 +149,12 @@ What to highlight:
 ## Optional Talking Points
 
 - “Structured memory writes produce decision results like `stored`, `no_change`, `ignored`, and `needs_confirmation`.”
-- “Structured memory decisions are logged locally to JSONL for debugging.”
+- “Decision logs contain field/decision metadata, not copies of birthdates or conversation text. Saved profile data itself is still private.”
 - “Planner and ranker outputs are normalized so malformed LLM output cannot dump all memory into context.”
 - “The critical memory and retrieval paths are covered by offline tests.”
+
+After accepting a correction, `quit` and restart with the same demo ID to try an
+age question without the old conversation history. This demonstrates persistence
+if the live model selects the memory/age tools; use the offline tests as the
+deterministic evidence. Do not restart while a confirmation is pending, because
+pending corrections are intentionally session-only.

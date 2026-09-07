@@ -25,8 +25,8 @@ def test_stored_result_creates_jsonl_log_entry(tmp_path):
         "user_id": "user-1",
         "category": "profile",
         "field": "city",
-        "proposed_value": "Berlin",
-        "existing_value": None,
+        "has_proposed_value": True,
+        "has_existing_value": False,
         "decision": "stored",
         "reason": "value stored",
         "source": "structured_memory_storage",
@@ -54,7 +54,7 @@ def test_ignored_result_creates_jsonl_log_entry(tmp_path):
     assert json.loads(log_path.read_text().strip())["decision"] == "ignored"
 
 
-def test_needs_confirmation_log_entry_includes_existing_and_proposed_values(tmp_path):
+def test_needs_confirmation_log_records_decision_without_duplicating_values(tmp_path):
     log_path = tmp_path / "memory_decision_log.jsonl"
 
     append_memory_decision_log(
@@ -72,8 +72,10 @@ def test_needs_confirmation_log_entry_includes_existing_and_proposed_values(tmp_
     )
 
     entry = json.loads(log_path.read_text().strip())
-    assert entry["existing_value"] == "1995-04-12"
-    assert entry["proposed_value"] == "1996-04-12"
+    assert entry["has_existing_value"] is True
+    assert entry["has_proposed_value"] is True
+    assert "1995-04-12" not in log_path.read_text()
+    assert "1996-04-12" not in log_path.read_text()
     assert entry["decision"] == "needs_confirmation"
 
 

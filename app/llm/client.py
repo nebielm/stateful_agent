@@ -17,7 +17,7 @@ def get_llm():
 
     if _llm is _UNINITIALIZED:
         if not settings.OPENROUTER_API_KEY:
-            raise ValueError("Missing OPENROUTER_API_KEY or OPENAI_API_KEY in environment.")
+            raise ValueError("Missing OPENROUTER_API_KEY. Set it in the environment or project .env; only OpenRouter is supported.")
 
         _llm = ChatOpenRouter(
             model=settings.CHAT_MODEL_NAME,

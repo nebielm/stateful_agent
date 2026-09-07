@@ -4,6 +4,7 @@ from datetime import datetime
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.core.logging import logger
+from app.core.identity import require_user_id
 from app.llm.extractors import extract_knowledge
 from app.models.memory import ALLOWED_TYPES
 
@@ -27,13 +28,13 @@ def normalize_type(t: str) -> str:
 def similar_memory_exists(
     vectorstore,
     text: str,
-    threshold: float = 0.85,
+    max_distance: float = 0.15,
     k: int = 3,
     metadata_filter: dict | None = None,
 ):
     """
-    Checks if a similar entry already exists in vector DB.
-    Works with any metadata schema.
+    Check raw distance against a heuristic duplicate cutoff for our L2 stores.
+    This is not a calibrated similarity threshold.
     """
     results = vectorstore.similarity_search_with_score(
         query=text,
@@ -41,22 +42,21 @@ def similar_memory_exists(
         filter=metadata_filter if metadata_filter else None,
     )
 
-    for doc, score in results:
-        similarity = max(0, 1 - score)
-
-        if similarity >= threshold:
+    for doc, distance in results:
+        if distance <= max_distance:
             return {
                 "exists": True,
-                "similarity": similarity,
+                "distance": distance,
                 "doc": doc.page_content,
             }
 
     return {"exists": False}
 
 
-def controlled_unstructured_data_storage(user_vectorstore, text: str, type: str, user_id: str = "default_user"):
+def controlled_unstructured_data_storage(user_vectorstore, text: str, type: str, user_id: str):
     """Stores unstructured memory into Chroma vector DB"""
-    logger.info(f"[MEMORY STORAGE]: Started unstructured user data storage for: text: {text}, type: {type}.")
+    require_user_id(user_id)
+    logger.info("[MEMORY STORAGE]: Started unstructured user data storage")
 
     if not text or len(text) < 5:
         logger.info("[MEMORY STORAGE]: IGNORED: Text must be at least 5 characters long.")
@@ -80,7 +80,7 @@ def controlled_unstructured_data_storage(user_vectorstore, text: str, type: str,
             metadatas=[metadata],
             ids=[str(uuid.uuid4())],
         )
-        logger.info(f"[MEMORY STORAGE]: ✅ Stored {text} successfully.")
+        logger.info("[MEMORY STORAGE]: Stored unstructured memory successfully")
         return f"stored {text}, (type: {clean_type}) "
 
     except Exception as e:
@@ -118,10 +118,11 @@ def enrich_knowledge(vectorstore, source: str, raw_text: str, chunk_size: int, c
 
             metadata = {
                 "category": category,
-                "tags": tags,
                 "timestamp": datetime.now().isoformat(),
                 "source": source,
             }
+            if tags:
+                metadata["tags"] = tags
 
             vectorstore.add_texts(
                 texts=[chunk],

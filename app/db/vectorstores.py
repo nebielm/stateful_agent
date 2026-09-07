@@ -22,6 +22,7 @@ def ingest_knowledge(
     doc_folder: str | None = None,
     force_rebuild: bool | None = False,
 ):
+    """Open a local store; optional .txt ingestion also requires unstructured."""
     logger.info(f"[System]: Start {collection_name} Knowledge base creation")
     try:
         if force_rebuild and os.path.exists(persist_dir):
@@ -56,7 +57,6 @@ def ingest_knowledge(
                         category = "general"
                     chunk.metadata = {
                         "category": category,
-                        "tags": [],
                         "timestamp": datetime.now().isoformat(),
                         "source": "core",
                     }

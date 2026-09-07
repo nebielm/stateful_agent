@@ -6,7 +6,7 @@ def sample_context():
         "structured": [
             {"key": "birthdate", "value": "1995-04-12", "category": "profile", "score": 1.0},
             {"key": "favorite_food", "value": "pasta", "category": "preferences", "score": 1.0},
-            {"key": "goal", "value": "lose weight", "category": "dynamic", "score": 1.0},
+            {"key": "current_goal", "value": "lose weight", "category": "dynamic", "score": 1.0},
         ],
         "unstructured": [
             {"text": "user dislikes pork", "type": "dislike", "score": 0.95},
@@ -47,9 +47,9 @@ def test_empty_ranker_output_falls_back_safely(monkeypatch):
     result = retrieval.retrieve_relevant_context_for_user(all_context, "How old am I?", k=2)
 
     assert result == {
-        "structured": all_context["structured"][:2],
-        "unstructured": all_context["unstructured"][:2],
-        "knowledge": all_context["knowledge"][:2],
+        "structured": [],
+        "unstructured": [],
+        "knowledge": [],
     }
 
 
@@ -68,9 +68,9 @@ def test_malformed_ranker_output_falls_back_safely(monkeypatch):
     result = retrieval.retrieve_relevant_context_for_user(all_context, "What should I cook?", k=2)
 
     assert result == {
-        "structured": all_context["structured"][:2],
+        "structured": [],
         "unstructured": [all_context["unstructured"][0]],
-        "knowledge": all_context["knowledge"][:2],
+        "knowledge": [],
     }
 
 
@@ -81,9 +81,9 @@ def test_non_dict_ranker_output_falls_back_safely(monkeypatch):
     result = retrieval.retrieve_relevant_context_for_user(all_context, "What should I cook?", k=2)
 
     assert result == {
-        "structured": all_context["structured"][:2],
-        "unstructured": all_context["unstructured"][:2],
-        "knowledge": all_context["knowledge"][:2],
+        "structured": [],
+        "unstructured": [],
+        "knowledge": [],
     }
 
 
@@ -147,4 +147,13 @@ def test_ranker_output_is_limited_to_k_items(monkeypatch):
         "structured": [all_context["structured"][0]],
         "unstructured": [all_context["unstructured"][0]],
         "knowledge": [all_context["knowledge"][0]],
+    }
+
+
+def test_ranker_exception_returns_no_context(monkeypatch):
+    def failed_call(*args, **kwargs):
+        raise RuntimeError("fake provider failed")
+    monkeypatch.setattr(retrieval, "call_llm_json", failed_call)
+    assert retrieval.retrieve_relevant_context_for_user(sample_context(), "hello") == {
+        "structured": [], "unstructured": [], "knowledge": [],
     }

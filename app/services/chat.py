@@ -3,20 +3,21 @@ import uuid
 from langchain_core.messages import AIMessage, HumanMessage
 
 from app.core.logging import logger
+from app.core.identity import get_user_id
 from app.db.vectorstores import runtime_context
 from app.llm.client import get_llm
+from app.repositories.user_memory import load_user_data
 from app.services.graph import app
 
 
-user_id = str(uuid.uuid4())
-
-
 def chat():
-    runtime_context()
+    user_id = get_user_id()
+    load_user_data()
     get_llm()
+    runtime_context()
 
     state = {
-        "request_id": uuid.uuid4(),
+        "request_id": str(uuid.uuid4()),
         "user_id": user_id,
         "messages": [],
         "memory_updates": {
@@ -51,5 +52,5 @@ def chat():
             logger.error(f"[{str(state['request_id'])}] Missing chat messages after graph execution.")
             continue
 
-        logger.info(f"[{str(state['request_id'])}] User: {human_msg.content}")
-        logger.info(f"[{str(state['request_id'])}] AI AGENT: {ai_msg.content}")
+        logger.info(f"[{str(state['request_id'])}] Chat turn completed")
+        print(f"\nAI: {ai_msg.content}")

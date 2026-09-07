@@ -34,6 +34,7 @@ def extract_ephemeral_updates(user_text: str, agent_text: str) -> Dict[str, Any]
     - Do NOT infer or guess
     - Do NOT include historical values
     - Keep keys short and generic (e.g. weight, location, balance)
+    - goal and target_weight describe session-only state; persisted goals use current_goal
     - Output MUST be valid JSON (no text, no explanation)
 
     Example:
@@ -69,7 +70,7 @@ def extract_ephemeral_updates(user_text: str, agent_text: str) -> Dict[str, Any]
 
 
 def extract_memory_updates(text: str) -> dict:
-    logger.info(f"[MEMORY EXTRACTION]: Start extracting updates on user data from query: {text}")
+    logger.info("[MEMORY EXTRACTION]: Start extracting user memory updates")
     try:
         prompt = format_prompt(
             DATA_SELECTION_PROMPT,
@@ -82,18 +83,22 @@ def extract_memory_updates(text: str) -> dict:
         output = call_llm_json(prompt, {"structured": [], "unstructured": []})
 
         if not isinstance(output, dict):
+            logger.warning("[MEMORY EXTRACTION]: Rejected non-object extraction result")
             return {"structured": [], "unstructured": []}
 
         structured = output.get("structured", [])
         unstructured = output.get("unstructured", [])
 
         if not isinstance(structured, list):
+            logger.warning("[MEMORY EXTRACTION]: Rejected non-list structured batch")
             structured = []
 
         if not isinstance(unstructured, list):
+            logger.warning("[MEMORY EXTRACTION]: Rejected non-list unstructured batch")
             unstructured = []
         logger.info(
-            f"[MEMORY EXTRACTION]:✅Extracted updates on user data successfully: structured: {str(structured)}, unstructured: {str(unstructured)}"
+            "[MEMORY EXTRACTION]: Extracted update counts: structured=%s unstructured=%s",
+            len(structured), len(unstructured),
         )
         return {
             "structured": structured,
@@ -110,7 +115,7 @@ def extract_knowledge(raw_text: str) -> dict:
     Extract structured knowledge for storage.
     Returns: summary, category, tags
     """
-    logger.info(f"[MEMORY EXTRACTION]: Start extracting knowledge updates from findings: {raw_text}")
+    logger.info("[MEMORY EXTRACTION]: Start extracting knowledge updates")
 
     if not raw_text or len(raw_text) < 20:
         logger.info("[MEMORY EXTRACTION]: IGNORED: Text must be at least 20 characters long.")
@@ -173,7 +178,7 @@ def extract_knowledge(raw_text: str) -> dict:
 
 def extract_retrieval_plan(text: str) -> dict:
     logger.info(
-        f"[MEMORY EXTRACTION]: Start extracting retrieving plan for user data and knowledge base data for query: {text}"
+        "[MEMORY EXTRACTION]: Start extracting retrieval plan"
     )
     try:
         prompt = format_prompt(

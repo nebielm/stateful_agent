@@ -31,9 +31,10 @@ RULES
 ---------------------
 - Output MUST be JSON.
 - Include only explicitly relevant items.
-- Structured keys must reference table and key (e.g., "table:fitness, key:current_goal").
+- Structured keys must reference table and key (e.g., "table:dynamic, key:current_goal").
 - Unstructured types must reference type name (e.g., "type:habit").
 - Do NOT invent new keys or types.
+- Persisted goals use dynamic.current_goal. goal and target_weight belong to session working memory, not structured retrieval.
 
 ---------------------
 OUTPUT FORMAT
@@ -55,11 +56,12 @@ EXAMPLES
 Input Query: "I want a low-carb dinner for tonight"
 Structured Tables & Keys:
 - profile: city, job
-- preferences: diet, favorite_food, allergies
+- preferences: diet, favorite_food
+- health: allergies
 - dynamic: current_goal, weight
 
 Unstructured Types:
-habit, preference, context, mood
+habit, preference, diet, dislike, behavior, context
 
 Output:
 {{

@@ -1,19 +1,60 @@
 import json
 import os
+import tempfile
+from pathlib import Path
 from typing import Any, Dict, List
 
 from app.core.logging import logger
+from app.core.identity import require_user_id
 from app.repositories.memory_decision_log import append_memory_decision_log
 from app.core.settings import USER_INFO_PATH
-from app.models.memory import IMMUTABLE_KEYS, MEMORY_SCHEMA
+from app.models.memory import IMMUTABLE_KEYS, MEMORY_SCHEMA, structured_value_error
 
 
-def load_user_data(file_path: str = USER_INFO_PATH) -> Dict[str, Any]:
+class MemoryStoreError(RuntimeError):
+    """The memory file could not be read or safely replaced."""
+
+
+def load_user_data(file_path: str | None = None) -> Dict[str, Any]:
+    path = Path(file_path if file_path is not None else USER_INFO_PATH)
     try:
-        with open(file_path, "r") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
         return {}
+    except (OSError, ValueError) as exc:
+        raise MemoryStoreError(f"Cannot read memory file {path}; original file preserved.") from exc
+    if not isinstance(data, dict) or any(
+        not isinstance(profile, dict)
+        or any(category in profile and not isinstance(profile[category], dict) for category in MEMORY_SCHEMA)
+        for profile in data.values()
+    ):
+        raise MemoryStoreError(f"Invalid memory structure in {path}; original file preserved.")
+    return data
+
+
+def _write_user_data(data: Dict[str, Any]) -> None:
+    """Replace only a complete file; this is not a multi-writer transaction."""
+    path = Path(USER_INFO_PATH)
+    temporary_path = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", delete=False,
+        ) as stream:
+            temporary_path = Path(stream.name)
+            json.dump(data, stream, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, path)
+    except (OSError, ValueError, TypeError) as exc:
+        raise MemoryStoreError(f"Cannot replace memory file {path}; original file preserved.") from exc
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            try:
+                temporary_path.unlink()
+            except OSError:
+                logger.error("[MEMORY STORAGE]: Could not remove temporary memory file")
 
 
 def lookup_user_value(user_data: Dict[str, Any], key: str):
@@ -28,7 +69,7 @@ def lookup_user_value(user_data: Dict[str, Any], key: str):
 
 
 def is_valid_key(key, category):
-    return key in MEMORY_SCHEMA.get(category, [])
+    return isinstance(key, str) and isinstance(category, str) and key in MEMORY_SCHEMA.get(category, [])
 
 
 def build_structured_storage_result(
@@ -50,12 +91,11 @@ def build_structured_storage_result(
 
 
 def controlled_structured_data_storage(user_id: str, key: str, value: str, category: str):
-    logger.info(
-        f"[MEMORY STORAGE]: Started structured user data storage for: key: {key}, value: {value}, category: {category}."
-    )
+    require_user_id(user_id)
+    logger.info("[MEMORY STORAGE]: Started structured user data storage")
 
     if not is_valid_key(key, category):
-        logger.info(f"[MEMORY STORAGE]: IGNORED: Key: {key} is not allowed in {category}.")
+        logger.info("[MEMORY STORAGE]: IGNORED: Invalid schema key/category")
         result = build_structured_storage_result(
             decision="ignored",
             field=key,
@@ -66,8 +106,14 @@ def controlled_structured_data_storage(user_id: str, key: str, value: str, categ
         append_memory_decision_log(user_id=user_id, result=result)
         return result
 
+    if reason := structured_value_error(key, value):
+        result = build_structured_storage_result(
+            "ignored", key, category, proposed_value=value, reason=reason,
+        )
+        append_memory_decision_log(user_id=user_id, result=result)
+        return result
+
     try:
-        os.makedirs(os.path.dirname(USER_INFO_PATH), exist_ok=True)
         data = load_user_data(USER_INFO_PATH)
         existing_user_data = data.get(user_id, {})
         existing_value = lookup_user_value(existing_user_data, key)
@@ -85,7 +131,6 @@ def controlled_structured_data_storage(user_id: str, key: str, value: str, categ
                 )
                 append_memory_decision_log(user_id=user_id, result=result)
                 return result
-            # TODO: Replace this with an explicit confirmation/correction flow.
             logger.info(
                 f"[MEMORY STORAGE]: IGNORED: Key: {key} is write-once immutable and cannot be overwritten."
             )
@@ -108,9 +153,8 @@ def controlled_structured_data_storage(user_id: str, key: str, value: str, categ
         user_data = data[user_id]
         if key not in user_data[category] or user_data[category][key] != value:
             user_data[category][key] = value
-            with open(USER_INFO_PATH, "w") as f:
-                json.dump(data, f, indent=2)
-            logger.info(f"[MEMORY STORAGE]: ✅ Structured User data storage success: Stored {key}: {value}")
+            _write_user_data(data)
+            logger.info("[MEMORY STORAGE]: Structured user data stored: %s", key)
             result = build_structured_storage_result(
                 decision="stored",
                 field=key,
@@ -132,9 +176,13 @@ def controlled_structured_data_storage(user_id: str, key: str, value: str, categ
         )
         append_memory_decision_log(user_id=user_id, result=result)
         return result
-    except Exception as e:
-        logger.error(f"[MEMORY STORAGE]: ❌ Error while storing structured User data: {str(e)}")
-        return
+    except MemoryStoreError as exc:
+        logger.error("[MEMORY STORAGE]: %s", exc)
+        result = build_structured_storage_result(
+            "failed", key, category, proposed_value=value, reason="memory persistence failed",
+        )
+        append_memory_decision_log(user_id, result)
+        return result
 
 
 def apply_confirmed_structured_correction(
@@ -145,9 +193,8 @@ def apply_confirmed_structured_correction(
     *,
     expected_existing_value=None,
 ):
-    logger.info(
-        f"[MEMORY STORAGE]: Applying confirmed structured correction for key: {key}, value: {value}, category: {category}."
-    )
+    require_user_id(user_id)
+    logger.info("[MEMORY STORAGE]: Applying confirmed structured correction")
 
     if not is_valid_key(key, category):
         return build_structured_storage_result(
@@ -158,12 +205,21 @@ def apply_confirmed_structured_correction(
             reason="invalid schema key",
         )
 
-    os.makedirs(os.path.dirname(USER_INFO_PATH), exist_ok=True)
+    if key not in IMMUTABLE_KEYS:
+        return build_structured_storage_result(
+            "ignored", key, category, proposed_value=value,
+            reason="field is not part of immutable confirmation workflow",
+        )
+    if reason := structured_value_error(key, value):
+        return build_structured_storage_result(
+            "ignored", key, category, proposed_value=value, reason=reason,
+        )
+
     data = load_user_data(USER_INFO_PATH)
     existing_user_data = data.get(user_id, {})
-    existing_value = lookup_user_value(existing_user_data, key)
+    existing_value = existing_user_data.get(category, {}).get(key)
 
-    if expected_existing_value is not None and str(existing_value) != str(expected_existing_value):
+    if expected_existing_value is None or existing_value is None or existing_value != expected_existing_value:
         return build_structured_storage_result(
             decision="ignored",
             field=key,
@@ -179,8 +235,7 @@ def apply_confirmed_structured_correction(
         data[user_id][category] = {}
 
     data[user_id][category][key] = value
-    with open(USER_INFO_PATH, "w") as f:
-        json.dump(data, f, indent=2)
+    _write_user_data(data)
 
     return build_structured_storage_result(
         decision="confirmed_update_applied",
@@ -198,10 +253,11 @@ def retrieve_structured_memory(
     relevant_keys: List[str] = None,
     k: int = 5,
 ) -> List[Dict[str, Any]]:
+    require_user_id(user_id)
     logger.info("[RETRIEVAL SYSTEM]: Retrieving structured user data from user DB")
     data = load_user_data(USER_INFO_PATH)
     if not data:
-        logger.error("[RETRIEVAL SYSTEM]: ❌ Error while opening user DB file.")
+        logger.info("[RETRIEVAL SYSTEM]: No structured memory stored yet")
         return []
     try:
         user_data = data.get(user_id, {})
@@ -213,6 +269,9 @@ def retrieve_structured_memory(
 
             for key, value in items.items():
                 if relevant_keys and key not in relevant_keys:
+                    continue
+                if not is_valid_key(key, category) or structured_value_error(key, value):
+                    logger.warning("[RETRIEVAL SYSTEM]: Skipped invalid stored structured value")
                     continue
 
                 score = 1.0 if relevant_categories and category in relevant_categories else 0.7
